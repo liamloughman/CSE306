@@ -80,7 +80,7 @@ public:
     Vector u;
 };
 
-class Sphere {
+class Geometry {
 public:
     Vector C; 
     double R; 
@@ -88,6 +88,17 @@ public:
     bool mirror;
     double refractive_index;
     bool invert_normal;
+    virtual Intersection intersect(const Ray& ray) const = 0;
+};
+
+class Sphere : public Geometry{
+public:
+    // Vector C; 
+    // double R; 
+    // Vector albedo;
+    // bool mirror;
+    // double refractive_index;
+    // bool invert_normal;
     Sphere(const Vector& C, double R, const Vector& albedo, bool mirror, double refractive_index = 1.0, bool invert_normal = false) {
         this->C = C;
         this->R = R;
@@ -96,7 +107,7 @@ public:
         this->refractive_index = refractive_index;
         this->invert_normal = invert_normal;
     }
-    Intersection intersect(const Ray& ray) const {
+    Intersection intersect(const Ray& ray) const override {
         Intersection intersection;
         intersection.intersected = false; 
         Vector O_C = ray.O - C;
@@ -123,15 +134,16 @@ public:
 
 class Scene {
 public:
-    std::vector<Sphere*> spheres; 
+    std::vector<Geometry*> geometries;
+    // std::vector<Sphere*> spheres; 
     Vector light_position;
     double light_intensity;  
     Scene(const Vector& light_position, double light_intensity) {
         this->light_position = light_position;
         this->light_intensity = light_intensity;
     }
-    void addSphere(Sphere* sphere) {
-        spheres.push_back(sphere);
+    void addGeometry(Geometry* geometry) {
+        geometries.push_back(geometry);
     }
     Vector random_cos(const Vector &N) {
         double r1 = ((double) rand() / (RAND_MAX));
@@ -160,14 +172,14 @@ public:
         Vector T2 = cross(T1, N);
         return T1*x + T2*y + N*z;
     }
-    Intersection intersect(const Ray& ray) const {
+    Intersection intersect(const Ray& ray) {
         Intersection closestIntersection;
         closestIntersection.intersected = false;
         double closestDistance = std::numeric_limits<double>::max();
         int sphereIndex = -1; 
-        for (size_t i = 0; i < spheres.size(); ++i) {
-            const Sphere* sphere = spheres[i];
-            Intersection intersection = sphere->intersect(ray);
+        for (size_t i = 0; i < geometries.size(); ++i) {
+            const Geometry* geometry = geometries[i];
+            Intersection intersection = geometry->intersect(ray);
             if (intersection.intersected && intersection.t < closestDistance) {
                 closestDistance = intersection.t;
                 closestIntersection = intersection;
@@ -180,22 +192,24 @@ public:
         return closestIntersection;
     }
     Vector getColor(const Ray& ray, int ray_depth) {
-        if (ray_depth < 0) return Vector(0., 0., 0.);
+        if (ray_depth < 0) {
+            return Vector(0., 0., 0.);
+        }
         Intersection intersection = intersect(ray);
         if (!intersection.intersected) {
             return Vector(0., 0., 0.); 
         }
         const double epsilon = 1e-4;
-        Sphere& sphere = *spheres[intersection.index];
-        Vector P = ray.O + ray.u * intersection.t; 
-        Vector N = (P - sphere.C).normalize();
-        if (sphere.mirror) {
+        Geometry& geometry = *geometries[intersection.index];
+        Vector N = intersection.N;
+        Vector P = intersection.P + N*epsilon;
+        if (geometry.mirror) {
             Vector reflection_direction = ray.u - 2 * dot(ray.u, N) * N;
             Ray reflected_ray(P + epsilon * N, reflection_direction);
             return getColor(reflected_ray, ray_depth - 1);
         }
-        else if (sphere.refractive_index != 1.) {
-            if (sphere.invert_normal) {
+        else if (geometry.refractive_index != 1.) {
+            if (geometry.invert_normal) {
                 N = (-1.)*N;
             }
             double n1, n2;
@@ -242,7 +256,6 @@ public:
             return pixel_color;
         }
     }
-
 };
 
 void boxMuller ( double stdev , double& x , double &y ) {
@@ -251,6 +264,17 @@ void boxMuller ( double stdev , double& x , double &y ) {
     x = sqrt(-2*log(r1))*cos(2*M_PI*r2)*stdev;
     y = sqrt(-2*log(r1))*sin(2*M_PI*r2)*stdev;
 }
+
+class BoundingBox {
+public:
+    Vector B_min;
+    Vector B_max;
+
+    explicit BoundingBox(Vector B_min = Vector(), Vector B_max = Vector()) {
+        this->B_min = B_min;
+        this->B_max = B_max;
+    }
+};
 
 class TriangleIndices {
 public:
@@ -263,10 +287,19 @@ public:
 };
  
  
-class TriangleMesh {
+class TriangleMesh : public Geometry{
 public:
-  ~TriangleMesh() {}
-    TriangleMesh() {};
+    double scaling_factor;
+    Vector translation;
+    BoundingBox boundingbox;
+   ~TriangleMesh() {}
+    TriangleMesh(double scaling_factor, Vector translation, Vector albedo, double refractive_index = 1.0, bool mirror = false) {
+        this->scaling_factor = scaling_factor;
+        this->translation = translation;
+        this->albedo = albedo;
+        this->refractive_index = refractive_index;
+        this->mirror = mirror;
+    }
     
     void readOBJ(const char* obj) {
  
@@ -439,7 +472,96 @@ public:
  
         }
         fclose(f);
- 
+        // this->boundingbox = compute_bounding_box();
+    }
+
+    void compute_bounding_box() {
+        double min_x = MAXFLOAT, min_y = MAXFLOAT, min_z = MAXFLOAT;
+        double max_x = -MAXFLOAT, max_y = -MAXFLOAT, max_z = -MAXFLOAT;
+        for (const auto& index : this->indices) {
+            std::vector<Vector> triangle_vertices = {this->vertices[index.vtxi], this->vertices[index.vtxj], this->vertices[index.vtxk]};
+            for (const Vector& vertex : triangle_vertices) {
+                Vector transformed_vertex = scaling_factor * vertex + translation;
+                min_x = std::min(min_x, transformed_vertex[0]);
+                max_x = std::max(max_x, transformed_vertex[0]);
+                min_y = std::min(min_y, transformed_vertex[1]);
+                max_y = std::max(max_y, transformed_vertex[1]);
+                min_z = std::min(min_z, transformed_vertex[2]);
+                max_z = std::max(max_z, transformed_vertex[2]);
+            }
+        }
+        this->boundingbox = BoundingBox(Vector(min_x, min_y, min_z), Vector(max_x, max_y, max_z));
+    }
+
+    bool bounding_box_intersection(const Ray &ray, const BoundingBox boundingbox, double &t) const {
+        double tx0, ty0, tz0;
+        double tx1, ty1, tz1;
+        double t_B_min, t_B_max;
+        Vector N;
+
+        N = Vector(1,0,0);
+        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        tx0 = std::min(t_B_min, t_B_max);
+        tx1 = std::max(t_B_min, t_B_max);
+
+        N = Vector(0,1,0);
+        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        ty0 = std::min(t_B_min, t_B_max);
+        ty1 = std::max(t_B_min, t_B_max);
+
+        N = Vector(0,0,1);
+        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        tz0 = std::min(t_B_min, t_B_max);
+        tz1 = std::max(t_B_min, t_B_max);
+
+        double first_intersection_t = std::max({tx0, ty0, tz0});
+        double last_intersection_t = std::min({tx1, ty1, tz1});
+
+        if (first_intersection_t < last_intersection_t) {
+            t = first_intersection_t;
+            return true;
+        }
+        return false;
+    } 
+
+    Intersection intersect(const Ray &ray) const {
+        Intersection intersection;
+        intersection.intersected = false;
+        double t;
+        double min_t = MAXFLOAT;
+        if (!bounding_box_intersection(ray, this->boundingbox, t)) {
+            return intersection;
+        }
+        Vector A, B, C, N, e_1, e_2;
+        for (int i =0; i < indices.size(); ++i) {
+            TriangleIndices triangle = this->indices[i];
+            A = vertices[triangle.vtxi]*scaling_factor + translation;
+            B = vertices[triangle.vtxj]*scaling_factor + translation;
+            C = vertices[triangle.vtxk]*scaling_factor + translation;
+            e_1 = B - A;
+            e_2 = C - A;
+            N = cross(e_1, e_2);
+            double beta = dot(e_2, cross(A - ray.O, ray.u))/dot(ray.u, N);
+            double gamma = - dot(e_1, cross(A - ray.O, ray.u))/dot(ray.u, N);
+            double alpha = 1.0 - beta - gamma;
+            if (alpha > 0.0 && beta > 0.0 && gamma > 0.0) {
+                double t = dot(A - ray.O, N)/dot(ray.u, N);
+                if (t > 0 && min_t > t) {
+                    min_t = t;
+                    intersection.intersected = true;
+                    intersection.t = t;
+                    intersection.P = A + e_1*beta + e_2*gamma;
+                    intersection.N = N;
+                    intersection.albedo = albedo;
+                    // if (this->mirror) {
+                    // intersection.mirror = true;
+                    }
+                }
+            }
+        return intersection;
     }
  
     std::vector<TriangleIndices> indices;
@@ -447,7 +569,6 @@ public:
     std::vector<Vector> normals;
     std::vector<Vector> uvs;
     std::vector<Vector> vertexcolors;
-    
 };
 
 int main() {
@@ -460,52 +581,56 @@ int main() {
     double scale = tan(fov / 2);
     Scene scene(Vector(-10, 20, 40), 1e10);
 
-    // Sphere white_sphere(Vector(0,0,0), 10, Vector(1, 1, 1), false); // center white sphere
-    // scene.addSphere(&white_sphere);
+    // Sphere* white_sphere = new Sphere(Vector(0,0,0), 10, Vector(1, 1, 1), false); // center white sphere
+    // scene.addGeometry(white_sphere);
 
-    Sphere left_sphere(Vector(-10,0,20), 9, Vector(1,1,1), false, 1.5); //left full refractive sphere
-    scene.addSphere(&left_sphere);
-    Sphere white_sphere(Vector(0,0,5), 9, Vector(1, 1, 1), false); // center white sphere
-    scene.addSphere(&white_sphere);
-    Sphere right_sphere(Vector(10, 0, -10), 9, Vector(1, 1, 1), true); // left mirror sphere
-    scene.addSphere(&right_sphere);
-    Sphere top_sphere(Vector(0, 19, 5), 9, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
-    scene.addSphere(&top_sphere);
-    Sphere top_inner_sphere(Vector(0, 19, 5), 8.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
-    scene.addSphere(&top_inner_sphere);
+    // Sphere* left_sphere = new Sphere(Vector(-10,0,20), 9, Vector(1,1,1), false, 1.5); //left full refractive sphere
+    // scene.addGeometry(left_sphere);
+    // Sphere* white_sphere = new Sphere(Vector(0,0,5), 9, Vector(1, 1, 1), false); // center white sphere
+    // scene.addGeometry(white_sphere);
+    // Sphere* right_sphere = new Sphere(Vector(10, 0, -10), 9, Vector(1, 1, 1), true); // left mirror sphere
+    // scene.addGeometry(right_sphere);
+    // Sphere* top_sphere = new Sphere(Vector(0, 19, 5), 9, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
+    // scene.addGeometry(top_sphere);
+    // Sphere* top_inner_sphere = new Sphere(Vector(0, 19, 5), 8.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
+    // scene.addGeometry(top_inner_sphere);
 
-    // Sphere right_sphere(Vector(20, 0, 0), 10, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
-    // scene.addSphere(&right_sphere);
-    // Sphere right_inner_sphere(Vector(20, 0, 0), 9.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
-    // scene.addSphere(&right_inner_sphere);
-    // Sphere left_sphere(Vector(-20, 0, 0), 10, Vector(1, 1, 1), true); // left mirror sphere
-    // scene.addSphere(&left_sphere);
-    // Sphere center_sphere(Vector(0,0,0), 10, Vector(1,1,1), false, 1.5); // center full refractive sphere
-    // scene.addSphere(&center_sphere);
+    // Sphere* right_sphere(Vector(20, 0, 0), 10, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
+    // scene.addGeometry(right_sphere);
+    // Sphere* right_inner_sphere(Vector(20, 0, 0), 9.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
+    // scene.addGeometry(right_inner_sphere);
+    // Sphere* left_sphere(Vector(-20, 0, 0), 10, Vector(1, 1, 1), true); // left mirror sphere
+    // scene.addGeometry(left_sphere);
+    // Sphere* center_sphere(Vector(0,0,0), 10, Vector(1,1,1), false, 1.5); // center full refractive sphere
+    // scene.addGeometry(center_sphere);
 
-    Sphere ceiling = Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false); // ceiling
-    scene.addSphere(&ceiling);
-    Sphere floor = Sphere(Vector(0, -1000, 0), 990, Vector(0, 0, 1), false); // floor 
-    scene.addSphere(&floor);
-    Sphere front = Sphere(Vector(0, 0, -1000), 940, Vector(0, 1, 0), false); // front
-    scene.addSphere(&front);
-    Sphere back = Sphere(Vector(0, 0, 1000), 940, Vector(1, 0, 1), false); // back
-    scene.addSphere(&back);
-    Sphere left = Sphere(Vector(1000, 0, 0), 940, Vector(1, 1, 0), false); // left
-    scene.addSphere(&left);
-    Sphere right = Sphere(Vector(-1000, 0, 0), 940, Vector(0, 1, 1), false); // right
-    scene.addSphere(&right);
-    // TriangleMesh cat = TriangleMesh(0.6, Vector(0, -10, 0), Vector(1., 1., 1.));
-    // cat.readOBJ("cat_model/cat.obj");
-    // scene.addGeometry(&cat);
-    double aperture_radius = 1.5;
-    double focus_distance = 50;
+    TriangleMesh* cat = new TriangleMesh(0.6, Vector(0, -10, 0), Vector(1., 1., 1.));
+    cat->readOBJ("cat_model/cat.obj");
+    cat->compute_bounding_box();
+    scene.addGeometry(cat);
+
+    Sphere* ceiling = new Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false); // ceiling
+    scene.addGeometry(ceiling);
+    Sphere* floor = new Sphere(Vector(0, -1000, 0), 990, Vector(0, 0, 1), false); // floor 
+    scene.addGeometry(floor);
+    Sphere* front = new Sphere(Vector(0, 0, -1000), 940, Vector(0, 1, 0), false); // front
+    scene.addGeometry(front);
+    Sphere* back = new Sphere(Vector(0, 0, 1000), 940, Vector(1, 0, 1), false); // back
+    scene.addGeometry(back);
+    Sphere* left = new Sphere(Vector(1000, 0, 0), 940, Vector(1, 1, 0), false); // left
+    scene.addGeometry(left);
+    Sphere* right = new Sphere(Vector(-1000, 0, 0), 940, Vector(0, 1, 1), false); // right
+    scene.addGeometry(right);
+
+    double aperture_radius = 0.5;
+    double focus_distance = 60;
     double gamma = 2.2;
     int ray_depth = 5;
-    int K = 2000;
-    // int K = 32;
+    // int K = 2000;
+    int K = 10;
     #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; ++i) {
+        std::cout<<i<<std::endl;
         for (int j = 0; j < W; ++j) {
             Vector color_tmp(0., 0., 0.);
             double x, y;
