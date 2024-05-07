@@ -10,6 +10,8 @@
 #include <iostream>
 #include <stdio.h>
 #include <algorithm>
+#include <chrono>
+#include<list>
 static std::default_random_engine engine(10);
 static std::uniform_real_distribution<double> uniform(0.0, 1.0);
 
@@ -93,12 +95,6 @@ public:
 
 class Sphere : public Geometry{
 public:
-    // Vector C; 
-    // double R; 
-    // Vector albedo;
-    // bool mirror;
-    // double refractive_index;
-    // bool invert_normal;
     Sphere(const Vector& C, double R, const Vector& albedo, bool mirror, double refractive_index = 1.0, bool invert_normal = false) {
         this->C = C;
         this->R = R;
@@ -135,7 +131,6 @@ public:
 class Scene {
 public:
     std::vector<Geometry*> geometries;
-    // std::vector<Sphere*> spheres; 
     Vector light_position;
     double light_intensity;  
     Scene(const Vector& light_position, double light_intensity) {
@@ -177,7 +172,7 @@ public:
         closestIntersection.intersected = false;
         double closestDistance = std::numeric_limits<double>::max();
         int sphereIndex = -1; 
-        for (size_t i = 0; i < geometries.size(); ++i) {
+        for (size_t i = 0; i < geometries.size(); i++) {
             const Geometry* geometry = geometries[i];
             Intersection intersection = geometry->intersect(ray);
             if (intersection.intersected && intersection.t < closestDistance) {
@@ -276,6 +271,14 @@ public:
     }
 };
 
+struct Node {
+    Node* left_child;
+    Node* right_child;
+    int starting_triangle;
+    int ending_triangle;
+    BoundingBox bounding_box;
+};
+
 class TriangleIndices {
 public:
     TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
@@ -291,7 +294,8 @@ class TriangleMesh : public Geometry{
 public:
     double scaling_factor;
     Vector translation;
-    BoundingBox boundingbox;
+    BoundingBox bounding_box;
+    Node* root;
    ~TriangleMesh() {}
     TriangleMesh(double scaling_factor, Vector translation, Vector albedo, double refractive_index = 1.0, bool mirror = false) {
         this->scaling_factor = scaling_factor;
@@ -299,6 +303,7 @@ public:
         this->albedo = albedo;
         this->refractive_index = refractive_index;
         this->mirror = mirror;
+        this->root = new Node;
     }
     
     void readOBJ(const char* obj) {
@@ -472,14 +477,14 @@ public:
  
         }
         fclose(f);
-        // this->boundingbox = compute_bounding_box();
+        this->build_BVH(this->root, 0, indices.size());
     }
 
-    void compute_bounding_box() {
+    BoundingBox compute_bounding_box(int starting_triangle, int ending_triangle) {
         double min_x = MAXFLOAT, min_y = MAXFLOAT, min_z = MAXFLOAT;
         double max_x = -MAXFLOAT, max_y = -MAXFLOAT, max_z = -MAXFLOAT;
-        for (const auto& index : this->indices) {
-            std::vector<Vector> triangle_vertices = {this->vertices[index.vtxi], this->vertices[index.vtxj], this->vertices[index.vtxk]};
+        for (int i = starting_triangle; i < ending_triangle; i++) {
+            std::vector<Vector> triangle_vertices = {this->vertices[this->indices[i].vtxi], this->vertices[this->indices[i].vtxj], this->vertices[this->indices[i].vtxk]};
             for (const Vector& vertex : triangle_vertices) {
                 Vector transformed_vertex = scaling_factor * vertex + translation;
                 min_x = std::min(min_x, transformed_vertex[0]);
@@ -490,77 +495,123 @@ public:
                 max_z = std::max(max_z, transformed_vertex[2]);
             }
         }
-        this->boundingbox = BoundingBox(Vector(min_x, min_y, min_z), Vector(max_x, max_y, max_z));
+        return BoundingBox(Vector(min_x, min_y, min_z), Vector(max_x, max_y, max_z));
     }
 
-    bool bounding_box_intersection(const Ray &ray, const BoundingBox boundingbox, double &t) const {
+    bool bounding_box_intersection(const Ray &ray, const BoundingBox bounding_box, double &t) const {
         double tx0, ty0, tz0;
         double tx1, ty1, tz1;
         double t_B_min, t_B_max;
         Vector N;
-
         N = Vector(1,0,0);
-        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
-        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        t_B_min = dot(bounding_box.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(bounding_box.B_max - ray.O, N) / dot(ray.u, N);
         tx0 = std::min(t_B_min, t_B_max);
         tx1 = std::max(t_B_min, t_B_max);
-
         N = Vector(0,1,0);
-        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
-        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        t_B_min = dot(bounding_box.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(bounding_box.B_max - ray.O, N) / dot(ray.u, N);
         ty0 = std::min(t_B_min, t_B_max);
         ty1 = std::max(t_B_min, t_B_max);
-
         N = Vector(0,0,1);
-        t_B_min = dot(this->boundingbox.B_min - ray.O, N) / dot(ray.u, N);
-        t_B_max = dot(this->boundingbox.B_max - ray.O, N) / dot(ray.u, N);
+        t_B_min = dot(bounding_box.B_min - ray.O, N) / dot(ray.u, N);
+        t_B_max = dot(bounding_box.B_max - ray.O, N) / dot(ray.u, N);
         tz0 = std::min(t_B_min, t_B_max);
         tz1 = std::max(t_B_min, t_B_max);
+    double first_intersection_t = std::max({tx0, ty0, tz0});
+    double last_intersection_t = std::min({tx1, ty1, tz1});
+      if (last_intersection_t > first_intersection_t > 0) {
+        t = first_intersection_t;
+        return true;
+      }
+      return false;
+    }
 
-        double first_intersection_t = std::max({tx0, ty0, tz0});
-        double last_intersection_t = std::min({tx1, ty1, tz1});
-
-        if (first_intersection_t < last_intersection_t) {
-            t = first_intersection_t;
-            return true;
+    void build_BVH(Node *node, int starting_triangle, int ending_triangle) {
+        node->bounding_box = compute_bounding_box(starting_triangle, ending_triangle);
+        node->starting_triangle = starting_triangle;
+        node->ending_triangle = ending_triangle;
+        Vector diagonal = node->bounding_box.B_max - node->bounding_box.B_min;
+        Vector middle_diagonal = node->bounding_box.B_min + 0.5*diagonal;
+        int longest_axis = 0;
+        double max = - MAXFLOAT;
+        for (int i = 0; i < 3; i++) {
+            if (abs(diagonal[i]) > max) {
+                max = abs(diagonal[i]);
+                longest_axis = i;
+            }
         }
-        return false;
-    } 
+        int pivot_index = starting_triangle;
+        for (int i = starting_triangle; i < ending_triangle; i++) {
+            Vector v1 = this->vertices[this->indices[i].vtxi]*scaling_factor + translation;
+            Vector v2 = this->vertices[this->indices[i].vtxj]*scaling_factor + translation;
+            Vector v3 = this->vertices[this->indices[i].vtxk]*scaling_factor + translation;
+            Vector barycenter = (v1 + v2 + v3)/3.;
+            if (barycenter[longest_axis] < middle_diagonal[longest_axis]) {
+                std::swap(indices[i], indices[pivot_index]);
+                pivot_index++;
+            }
+        }
+        if (pivot_index <= starting_triangle || pivot_index >= ending_triangle - 1 || ending_triangle - starting_triangle < 5) {
+            return;
+        }
+        node->left_child = new Node();
+        node->right_child = new Node();
+        this->build_BVH(node->left_child, starting_triangle, pivot_index);
+        this->build_BVH(node->right_child, pivot_index, ending_triangle);
+    }
 
     Intersection intersect(const Ray &ray) const {
         Intersection intersection;
         intersection.intersected = false;
         double t;
         double min_t = MAXFLOAT;
-        if (!bounding_box_intersection(ray, this->boundingbox, t)) {
+        if (!bounding_box_intersection(ray, this->root->bounding_box, t)) {
             return intersection;
         }
-        Vector A, B, C, N, e_1, e_2;
-        for (int i =0; i < indices.size(); ++i) {
-            TriangleIndices triangle = this->indices[i];
-            A = vertices[triangle.vtxi]*scaling_factor + translation;
-            B = vertices[triangle.vtxj]*scaling_factor + translation;
-            C = vertices[triangle.vtxk]*scaling_factor + translation;
-            e_1 = B - A;
-            e_2 = C - A;
-            N = cross(e_1, e_2);
-            double beta = dot(e_2, cross(A - ray.O, ray.u))/dot(ray.u, N);
-            double gamma = - dot(e_1, cross(A - ray.O, ray.u))/dot(ray.u, N);
-            double alpha = 1.0 - beta - gamma;
-            if (alpha > 0.0 && beta > 0.0 && gamma > 0.0) {
-                double t = dot(A - ray.O, N)/dot(ray.u, N);
-                if (t > 0 && min_t > t) {
-                    min_t = t;
-                    intersection.intersected = true;
-                    intersection.t = t;
-                    intersection.P = A + e_1*beta + e_2*gamma;
-                    intersection.N = N;
-                    intersection.albedo = albedo;
-                    // if (this->mirror) {
-                    // intersection.mirror = true;
+        std::list<Node*> nodes_to_visit;
+        nodes_to_visit.push_front(this->root);
+        while(!nodes_to_visit.empty()) {
+            Node* current_node = nodes_to_visit.back();
+            nodes_to_visit.pop_back();
+            if (current_node->left_child) {
+                if (bounding_box_intersection(ray, current_node->left_child->bounding_box, t)) {
+                    if (t < min_t) {
+                        nodes_to_visit.push_back(current_node->left_child);
+                    }
+                }
+                if (bounding_box_intersection(ray, current_node->right_child->bounding_box, t)) {
+                    if (t < min_t) {
+                        nodes_to_visit.push_back(current_node->right_child);
                     }
                 }
             }
+            else {
+                Vector A, B, C, e_1, e_2, N;
+                for (int i = current_node->starting_triangle; i < current_node->ending_triangle; i++) {
+                    A = vertices[this->indices[i].vtxi]*scaling_factor + translation;
+                    B = vertices[this->indices[i].vtxj]*scaling_factor + translation;
+                    C = vertices[this->indices[i].vtxk]*scaling_factor + translation;
+                    e_1 = B - A;
+                    e_2 = C - A;
+                    N = cross(e_1, e_2);
+                    double beta = dot(e_2, cross(A - ray.O, ray.u))/dot(ray.u, N);
+                    double gamma = - dot(e_1, cross(A - ray.O, ray.u))/dot(ray.u, N);
+                    double alpha = 1.0 - beta - gamma;
+                    if (alpha > 0.0 && beta > 0.0 && gamma > 0.0) {
+                        double t = dot(A - ray.O, N)/dot(ray.u, N);
+                        if (t > 0 && min_t > t) {
+                            min_t = t;
+                            intersection.intersected = true;
+                            intersection.t = t;
+                            intersection.P = A + e_1*beta + e_2*gamma;
+                            intersection.N = N;
+                            intersection.albedo = this->albedo;
+                        }
+                    }
+                }
+            }
+        }
         return intersection;
     }
  
@@ -572,6 +623,9 @@ public:
 };
 
 int main() {
+
+    auto start = std::chrono::high_resolution_clock::now();
+
     int W = 512;
     int H = 512;
     Vector Q(0, 0, 55);
@@ -604,10 +658,20 @@ int main() {
     // Sphere* center_sphere(Vector(0,0,0), 10, Vector(1,1,1), false, 1.5); // center full refractive sphere
     // scene.addGeometry(center_sphere);
 
-    TriangleMesh* cat = new TriangleMesh(0.6, Vector(0, -10, 0), Vector(1., 1., 1.));
+    TriangleMesh* cat = new TriangleMesh(0.6, Vector(0, -10, 10), Vector(1., 1., 1.));
     cat->readOBJ("cat_model/cat.obj");
-    cat->compute_bounding_box();
     scene.addGeometry(cat);
+
+    Sphere* top_sphere = new Sphere(Vector(-20, 25, -10), 9, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
+    scene.addGeometry(top_sphere);
+    Sphere* top_inner_sphere = new Sphere(Vector(-20, 25, -10), 8.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
+    scene.addGeometry(top_inner_sphere);
+    Sphere* white_sphere = new Sphere(Vector(20, 25,-10), 9, Vector(1, 1, 1), false); // center white sphere
+    scene.addGeometry(white_sphere);
+    Sphere* left_sphere = new Sphere(Vector(-20,0,-10), 9, Vector(1,1,1), false, 1.5); //left full refractive sphere
+    scene.addGeometry(left_sphere);
+    Sphere* right_sphere = new Sphere(Vector(20, 0, -10), 9, Vector(1, 1, 1), true); // left mirror sphere
+    scene.addGeometry(right_sphere);
 
     Sphere* ceiling = new Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false); // ceiling
     scene.addGeometry(ceiling);
@@ -622,19 +686,18 @@ int main() {
     Sphere* right = new Sphere(Vector(-1000, 0, 0), 940, Vector(0, 1, 1), false); // right
     scene.addGeometry(right);
 
-    double aperture_radius = 0.5;
-    double focus_distance = 60;
+    double aperture_radius = 1.5;
+    double focus_distance = 50;
     double gamma = 2.2;
     int ray_depth = 5;
-    // int K = 2000;
-    int K = 10;
+    int K = 1000;
     #pragma omp parallel for schedule(dynamic, 1)
-    for (int i = 0; i < H; ++i) {
+    for (int i = 0; i < H; i++) {
         std::cout<<i<<std::endl;
-        for (int j = 0; j < W; ++j) {
+        for (int j = 0; j < W; j++) {
             Vector color_tmp(0., 0., 0.);
             double x, y;
-            for (int k = 0; k< K; ++k) {
+            for (int k = 0; k< K; k++) {
                 boxMuller(0.5, x, y);
                 double theta = 2*M_PI*uniform(engine);
                 double aperture_shape = sqrt(uniform(engine))*aperture_radius;
@@ -677,6 +740,14 @@ int main() {
     //         image[(i * W + j) * 3 + 2] = static_cast<unsigned char>(std::min(color[2], 255.0));
     //     }
     // }
+    auto stop = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop-start);
+    if (duration.count() < 60000) {
+        std::cout<<"Time for rendering: "<<duration.count()/1000.<<" seconds."<<std::endl;
+    }
+    else {  
+        std::cout<<"Time for rendering: "<<duration.count()/60000<<" minute(s) and "<< fmod(duration.count()/60000., 1.0)*60<<" seconds."<<std::endl;
+    }
     stbi_write_png("image.png", W, H, 3, &image[0], 0);
     return 0;
 }
