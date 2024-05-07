@@ -518,8 +518,8 @@ public:
         t_B_max = dot(bounding_box.B_max - ray.O, N) / dot(ray.u, N);
         tz0 = std::min(t_B_min, t_B_max);
         tz1 = std::max(t_B_min, t_B_max);
-    double first_intersection_t = std::max({tx0, ty0, tz0});
-    double last_intersection_t = std::min({tx1, ty1, tz1});
+        double first_intersection_t = std::max({tx0, ty0, tz0});
+        double last_intersection_t = std::min({tx1, ty1, tz1});
       if (last_intersection_t > first_intersection_t > 0) {
         t = first_intersection_t;
         return true;
@@ -662,16 +662,16 @@ int main() {
     cat->readOBJ("cat_model/cat.obj");
     scene.addGeometry(cat);
 
-    Sphere* top_sphere = new Sphere(Vector(-20, 25, -10), 9, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
-    scene.addGeometry(top_sphere);
-    Sphere* top_inner_sphere = new Sphere(Vector(-20, 25, -10), 8.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
-    scene.addGeometry(top_inner_sphere);
-    Sphere* white_sphere = new Sphere(Vector(20, 25,-10), 9, Vector(1, 1, 1), false); // center white sphere
-    scene.addGeometry(white_sphere);
-    Sphere* left_sphere = new Sphere(Vector(-20,0,-10), 9, Vector(1,1,1), false, 1.5); //left full refractive sphere
-    scene.addGeometry(left_sphere);
-    Sphere* right_sphere = new Sphere(Vector(20, 0, -10), 9, Vector(1, 1, 1), true); // left mirror sphere
-    scene.addGeometry(right_sphere);
+    // Sphere* top_sphere = new Sphere(Vector(-20, 25, -10), 9, Vector(1, 1, 1), false, 1.5); // right hollow refractive sphere
+    // scene.addGeometry(top_sphere);
+    // Sphere* top_inner_sphere = new Sphere(Vector(-20, 25, -10), 8.5, Vector(1, 1, 1), false, 1.5, true); // right inner refractive sphere
+    // scene.addGeometry(top_inner_sphere);
+    // Sphere* white_sphere = new Sphere(Vector(20, 25,-10), 9, Vector(1, 1, 1), false); // center white sphere
+    // scene.addGeometry(white_sphere);
+    // Sphere* left_sphere = new Sphere(Vector(-20,0,-10), 9, Vector(1,1,1), false, 1.5); //left full refractive sphere
+    // scene.addGeometry(left_sphere);
+    // Sphere* right_sphere = new Sphere(Vector(20, 0, -10), 9, Vector(1, 1, 1), true); // left mirror sphere
+    // scene.addGeometry(right_sphere);
 
     Sphere* ceiling = new Sphere(Vector(0, 1000, 0), 940, Vector(1, 0, 0), false); // ceiling
     scene.addGeometry(ceiling);
@@ -690,7 +690,7 @@ int main() {
     double focus_distance = 50;
     double gamma = 2.2;
     int ray_depth = 5;
-    int K = 1000;
+    int K = 10;
     #pragma omp parallel for schedule(dynamic, 1)
     for (int i = 0; i < H; i++) {
         std::cout<<i<<std::endl;
