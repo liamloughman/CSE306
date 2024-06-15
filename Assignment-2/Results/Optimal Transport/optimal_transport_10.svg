@@ -1,0 +1,42 @@
+<svg xmlns = "http://www.w3.org/2000/svg" width = "1000" height = "1000">
+<g>
+<polygon points = "985.875, 994.837 970.850, 1000.000 668.087, 1000.000 265.942, 587.196 311.693, 499.823 1000.000, 684.916 1000.000, 972.138 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "990.711, 1000.000 985.875, 994.837 1000.000, 972.138 1000.000, 1000.000 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "15.504, 629.055 11.147, 1000.000 0.000, 1000.000 0.000, 618.351 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "254.171, 601.917 128.538, 1000.000 11.147, 1000.000 15.504, 629.055 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "990.711, 1000.000 970.850, 1000.000 985.875, 994.837 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "192.541, 5.624 92.152, 0.000 197.433, 0.000 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "254.171, 601.917 265.942, 587.196 668.087, 1000.000 128.538, 1000.000 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = ""
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "192.541, 5.624 311.693, 499.823 265.942, 587.196 254.171, 601.917 15.504, 629.055 0.000, 618.351 0.000, 0.000 92.152, 0.000 "
+fill = "none" stroke = "black"/>
+</g>
+<g>
+<polygon points = "311.693, 499.823 192.541, 5.624 197.433, 0.000 1000.000, 0.000 1000.000, 684.916 "
+fill = "none" stroke = "black"/>
+</g>
+</svg>
